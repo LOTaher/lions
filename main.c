@@ -7,34 +7,35 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/_pthread/_pthread_t.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <stdbool.h>
+#include <pthread.h>
 
 #define ADMIRAL_PORT 5321
 #define ADMIRAL_BACKLOG 15
 #define ADMIRAL_QUEUE_CAPACITY 50
+#define ADMIRAL_QUEUE_READ_RETRY_SECONDS 30
 
-int main(void) {
-    stmp_admiral_queue queue;
-    stmp_admiral_queue_init(&queue, ADMIRAL_QUEUE_CAPACITY);
-    mem_arena* arena = arena_create(MiB(100));
+void* network_loop(void* args) {
+    stmp_admiral_network_args* a = (stmp_admiral_network_args*)args;
+
+    mem_arena* networkArena = arena_create(KiB(8));
 
     int socketFd = socket(AF_INET, SOCK_STREAM, 0);
     if (socketFd == -1) {
         stmp_log_print("admiral", "Failed to create socket", ERROR);
-        return -1;
+        return NULL;
     }
 
-    int yes = 1;
-    if (setsockopt(socketFd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1) {
+    int opt = 1;
+    if (setsockopt(socketFd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1) {
         stmp_log_print("admiral", "Failed to set socket option", ERROR);
         close(socketFd);
-        return -1;
+        return NULL;
     }
 
-    struct sockaddr_in serverAddr;
-    memset(&serverAddr, 0, sizeof(serverAddr));
+    struct sockaddr_in serverAddr = {0};
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(ADMIRAL_PORT);
     serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -43,19 +44,19 @@ int main(void) {
     if (b == -1) {
         stmp_log_print("admiral", "Failed to bind to socket", ERROR);
         close(socketFd);
-        return -1;
+        return NULL;
     }
 
     int l = listen(socketFd, ADMIRAL_BACKLOG);
     if (l == -1) {
         stmp_log_print("admiral", "Failed to bind to listen", ERROR);
         close(socketFd);
-        return -1;
+       return NULL;
     }
 
     stmp_log_print("admiral", "Listening on specified port...", INFO);
 
-    while (true) {
+    for (;;) {
         stmp_log_print("admiral", "Waiting for connection...", INFO);
 
         struct sockaddr_in clientAddr;
@@ -69,10 +70,8 @@ int main(void) {
 
         stmp_log_print("admiral", "Accepted connection", INFO);
 
-        // NOTE(laith): marking arena here as the readPacket may be enqueued for the lifetime of
-        // the program, until it is dequeued
-        u64 mark = arena_mark(arena);
-        stmp_packet* readPacket = arena_push(arena, sizeof(stmp_packet));
+        u64 mark = arena_mark(networkArena);
+        stmp_packet* readPacket = arena_push(networkArena, sizeof(stmp_packet));
         stmp_packet sendPacket;
         stmp_result result;
 
@@ -83,15 +82,15 @@ int main(void) {
 
         stmp_error error = stmp_net_recv_packet(connectionFd, buffer, sizeof(buffer), readPacket, &result);
         if (error != STMP_ERR_NONE) {
-            arena_pop(arena, mark);
+            arena_pop(networkArena, mark);
             close(connectionFd);
             stmp_log_print("admiral", "Recieved a bad packet. Closing connection.", ERROR);
             continue;
         }
 
-        error = stmp_admiral_parse_and_queue_packet(&queue, readPacket);
+        error = stmp_admiral_parse_and_queue_packet(a->queue, readPacket);
         if (error != STMP_ERR_NONE) {
-            arena_pop(arena, mark);
+            arena_pop(networkArena, mark);
             stmp_admiral_invalidate_packet(&sendPacket);
             stmp_error send_error = stmp_net_send_packet(connectionFd, &sendPacket, &result);
 
@@ -105,11 +104,65 @@ int main(void) {
         }
 
         stmp_log_print("admiral", "Message queued. Closing connection", INFO);
+        arena_pop(networkArena, mark);
         close(connectionFd);
     }
 
+    arena_destroy(networkArena);
     close(socketFd);
-    arena_destroy(arena);
+    return 0;
+}
+
+
+void* admiral_loop(void* args) {
+    stmp_admiral_admiral_args* a = (stmp_admiral_admiral_args*)args;
+    for (;;) {
+        stmp_admiral_message* msg = stmp_admiral_queue_dequeue(a->queue);
+
+        if (msg == NULL) {
+            stmp_log_print("admiral", "No message in the queue. Retrying shortly", WARN);
+            sleep(ADMIRAL_QUEUE_READ_RETRY_SECONDS);
+            continue;
+        }
+
+        stmp_admiral_message_endpoint_names endpoints = stmp_admiral_get_endpoint(msg);
+        stmp_admiral_sanitize_message(msg);
+
+        char logBuffer[255];
+        snprintf(logBuffer, sizeof(logBuffer), "Forwarding message to [%s] from [%s]",
+                 endpoints.destination, endpoints.sender);
+
+        stmp_log_print("admiral", logBuffer, INFO);
+    }
+
+    // TODO(laith): send the net packet, for now lets log to test
+
+    return 0;
+}
+
+int main(void) {
+    stmp_admiral_queue queue;
+    stmp_admiral_queue_init(&queue, ADMIRAL_QUEUE_CAPACITY);
+
+    stmp_admiral_network_args networkArgs = {
+        .queue = &queue,
+    };
+
+    pthread_t networkThread;
+
+    pthread_create(&networkThread, NULL, network_loop, (void*)&networkArgs);
+
+    stmp_admiral_admiral_args admiralArgs = {
+        .queue = &queue,
+    };
+
+    pthread_t admiralThread;
+
+    pthread_create(&admiralThread, NULL, admiral_loop, (void*)&admiralArgs);
+
+    pthread_join(networkThread, NULL);
+    pthread_join(admiralThread, NULL);
+
     return 0;
 }
 

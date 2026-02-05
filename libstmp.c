@@ -2,12 +2,22 @@
 #include <string.h>
 #include <time.h>
 #include <sys/socket.h>
+#include <pthread.h>
 #include "libstmp.h"
+#include "lt_arena.h"
+#include "lt_base.h"
+#include "stmp.h"
 
 const char* stmp_log_print_type_colors[] = {
     STMP_LOG_COLOR_INFO,
     STMP_LOG_COLOR_WARN,
     STMP_LOG_COLOR_ERROR
+};
+
+char* stmp_admiral_endpoints[] = {
+    "admiral",
+    "hotel",
+    "scheduler",
 };
 
 stmp_error stmp_net_send_packet(u32 fd, const stmp_packet* packet, stmp_result* result) {
@@ -90,35 +100,67 @@ void stmp_admiral_queue_init(stmp_admiral_queue* queue, u8 capacity) {
     queue->arena = arena;
     queue->size = 0;
     queue->capacity = capacity;
+    queue->head = 0;
+    queue->tail = 0;
 
     queue->messages = arena_push(queue->arena, sizeof(stmp_admiral_message*) * capacity);
+
+    pthread_mutex_init(&queue->mutex, NULL);
 }
 
-void stmp_admiral_queue_enqueue(stmp_admiral_queue* queue, const stmp_admiral_message* message) {
+s8 stmp_admiral_queue_enqueue(stmp_admiral_queue* queue, const stmp_admiral_message* message) {
+    pthread_mutex_lock(&queue->mutex);
+
     if (queue->size >= queue->capacity) {
-        return;
+        pthread_mutex_unlock(&queue->mutex);
+        return -1;
     }
 
     stmp_admiral_message* allocated = arena_push(queue->arena, sizeof(stmp_admiral_message));
-    memcpy(allocated, message, sizeof(*message));
 
-    queue->messages[queue->size++] = allocated;
+    *allocated = *message;
+
+    queue->messages[queue->tail++] = allocated;
+    queue->size++;
+
+    pthread_mutex_unlock(&queue->mutex);
+
+    return 1;
 }
 
 stmp_admiral_message* stmp_admiral_queue_dequeue(stmp_admiral_queue* queue) {
+    pthread_mutex_lock(&queue->mutex);
+
     if (queue->size == 0) {
+        pthread_mutex_unlock(&queue->mutex);
         return NULL;
     }
 
-    stmp_admiral_message* msg = queue->messages[queue->size - 1];
+    stmp_admiral_message* msg = queue->messages[queue->head++];
 
     queue->size--;
+
+    if (queue->size == 0) {
+        arena_clear(queue->arena);
+        queue->head = 0;
+        queue->tail = 0;
+    }
+
+    pthread_mutex_unlock(&queue->mutex);
 
     return msg;
 }
 
+// NOTE(laith): this function changes how ownership of the packet is handled. This paacket lives
+// in the network loop arena and now it is getting copied over to the queue arena. with that, after
+// this function ends, we can safely pop the packet memory of the network arena and start again
+//
+// Do NOT share memory across threads!
 stmp_error stmp_admiral_parse_and_queue_packet(stmp_admiral_queue* queue, stmp_packet* packet) {
-    static u8 id = 1;
+    // NOTE(laith): this should be [dest][sender][EMPTY PAYLOAD BYTE] at the minimum
+    if (packet->payload_length < 3) {
+        return STMP_ERR_BAD_PAYLOAD;
+    }
 
     u8 destination = packet->payload[0];
     u8 sender = packet->payload[1];
@@ -132,15 +174,39 @@ stmp_error stmp_admiral_parse_and_queue_packet(stmp_admiral_queue* queue, stmp_p
 
     if (priority < LOW || priority > HIGH) return STMP_ERR_BAD_PAYLOAD;
 
-    stmp_admiral_message message = {id, destination, sender, priority, packet};
-    // NOTE(laith): the lifetime of this scope does not end until enqueue is called.
-    // enqueue memcpy's the value of the stack allocated message, so there is no need to allocate
-    // it here
+    stmp_admiral_message message = {destination, sender, priority, *packet};
     stmp_admiral_queue_enqueue(queue, &message);
+
     stmp_log_print("admiral", "Recieved and added message to queue", INFO);
-    id++;
 
     return STMP_ERR_NONE;
+}
+
+// NOTE(laith): probably want some further checks here but given the checks within the enqueue call
+// and the protocol itself, it should be fine?
+void stmp_admiral_sanitize_message(stmp_admiral_message* message) {
+    u64 sanitizedPayloadSize = message->packet.payload_length - 2;
+    u8 sanitizedPayload[sanitizedPayloadSize];
+
+    u64 sanitizedPayloadInput = 0;
+    for (u64 i = 2; i < message->packet.payload_length; i++) {
+        sanitizedPayload[sanitizedPayloadInput++] = message->packet.payload[i];
+    }
+
+    memcpy((void*)message->packet.payload, sanitizedPayload, sanitizedPayloadSize);
+    message->packet.payload_length = sanitizedPayloadSize;
+}
+
+stmp_admiral_message_endpoint_names stmp_admiral_get_endpoint(stmp_admiral_message* message) {
+    u8 destination = message->packet.payload[0];
+    u8 sender = message->packet.payload[1];
+
+    stmp_admiral_message_endpoint_names names = {
+        .destination = stmp_admiral_endpoints[destination],
+        .sender = stmp_admiral_endpoints[sender],
+    };
+
+    return names;
 }
 
 void stmp_admiral_invalidate_packet(stmp_packet* packet) {
@@ -150,3 +216,5 @@ void stmp_admiral_invalidate_packet(stmp_packet* packet) {
     packet->payload = STMP_PAYLOAD_EMPTY;
     packet->payload_length = 1;
 }
+
+

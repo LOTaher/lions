@@ -45,6 +45,9 @@ typedef double f64;
 
 #define ARR_LENGTH(arr) (sizeof(arr) / sizeof((arr)[0]))
 
+#define unused(x) (void)(x)
+#define nostatic
+
 /* Platform Detection */
 
 #if defined(_WIN32) || defined(_WIN64)
@@ -68,6 +71,5 @@ typedef double f64;
 #if !OS_WINDOWS && !OS_LINUX && !OS_MAC
     #error Unsupported platform
 #endif
-
 
 #endif // LT_BASE_H

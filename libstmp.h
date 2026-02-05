@@ -4,18 +4,19 @@
 
 #ifndef LIBSTMP_H
 #define LIBSTMP_H
-
+#include <sys/_pthread/_pthread_mutex_t.h>
+#include <stddef.h>
 #include "lt_base.h"
+#include "stmp.h"
 #define LT_ARENA_IMPLEMENTATION
 #include "lt_arena.h"
-#include "stmp.h"
-#include <stddef.h>
 
 // ===============================================================
 // Net
 // ===============================================================
 stmp_error stmp_net_send_packet(u32 fd, const stmp_packet* packet, stmp_result* result);
 stmp_error stmp_net_recv_packet(u32 fd, u8* buffer, size_t size, stmp_packet* packet, stmp_result* result);
+
 
 // ===============================================================
 // Log
@@ -43,19 +44,29 @@ typedef enum {
 } stmp_admiral_priority;
 
 typedef struct {
-    u8 id;
     u8 destination;
     u8 sender;
     // bool ack;
     stmp_admiral_priority priority;
-    stmp_packet* packet;
+    stmp_packet packet;
 } stmp_admiral_message;
+
+typedef struct {
+    char* destination;
+    char* sender;
+} stmp_admiral_message_endpoint_names;
 
 typedef struct {
     mem_arena* arena;
     stmp_admiral_message** messages;
     u8 size;
     u8 capacity;
+    // NOTE(laith): where to dequeue the next message
+    u8 head;
+    // NOTE(laith): where to queue the next message
+    u8 tail;
+    // NOTE(laith): the queue is modified by both threads, meaning we need a lock
+    pthread_mutex_t mutex;
 } stmp_admiral_queue;
 
 // NOTE(laith): this will be updated to add all the services that admiral will support
@@ -66,27 +77,20 @@ typedef enum {
     SCHEDULER
 } stmp_admiral_endpoint;
 
-// typedef enum {
-//     // send an ack recieved back to the client
-//     ACK,
-//     // send a disconnect to the client
-//     DISCONNECT,
-//     // send a message to the client
-//     MESSAGE,
-//     // send a ping back to the client
-//     PING,
-// } stmp_admiral_action;
+typedef struct {
+    stmp_admiral_queue* queue;
+} stmp_admiral_network_args;
+
+typedef struct {
+    stmp_admiral_queue* queue;
+} stmp_admiral_admiral_args;
 
 void stmp_admiral_queue_init(stmp_admiral_queue* queue, u8 capacity);
-void stmp_admiral_queue_enqueue(stmp_admiral_queue* queue, const stmp_admiral_message* message);
+s8 stmp_admiral_queue_enqueue(stmp_admiral_queue* queue, const stmp_admiral_message* message);
 stmp_admiral_message* stmp_admiral_queue_dequeue(stmp_admiral_queue* queue);
 stmp_error stmp_admiral_parse_and_queue_packet(stmp_admiral_queue* queue, stmp_packet* packet);
 void stmp_admiral_invalidate_packet(stmp_packet* packet);
-
-// service sends admiral an init init
-// admiral sends an init accept back
-
-// admiral sends an init init
-// service sends init accept back
+stmp_admiral_message_endpoint_names stmp_admiral_get_endpoint(stmp_admiral_message* message);
+void stmp_admiral_sanitize_message(stmp_admiral_message* message);
 
 #endif // LIBSTMP_H
