@@ -1,24 +1,20 @@
 #include <stdio.h>
 #include <string.h>
+#include <sys/_types/_socklen_t.h>
 #include <time.h>
 #include <sys/socket.h>
+#include <sys/types.h>
+#include <netdb.h>
 #include <pthread.h>
+
 #include "../include/libstmp.h"
 #include "../include/lt_arena.h"
 #include "../include/lt_base.h"
 #include "../include/stmp.h"
 
-const char* stmp_log_print_type_colors[] = {
-    STMP_LOG_COLOR_INFO,
-    STMP_LOG_COLOR_WARN,
-    STMP_LOG_COLOR_ERROR
-};
-
-char* stmp_admiral_endpoints[] = {
-    "admiral",
-    "hotel",
-    "scheduler",
-};
+// ===============================================================
+// Net
+// ===============================================================
 
 stmp_error stmp_net_send_packet(u32 fd, const stmp_packet* packet, stmp_result* result) {
     u8 buffer[STMP_PACKET_MAX_SIZE];
@@ -78,22 +74,75 @@ stmp_error stmp_net_recv_packet(u32 fd, u8* buffer, size_t size, stmp_packet* pa
     return STMP_ERR_BAD_INPUT;
 }
 
+stmp_net_get_client_values stmp_net_get_client(u32 fd) {
+
+    struct sockaddr clientAddr = {0};
+    socklen_t clientAddrLen = sizeof(clientAddr);
+    int g = getpeername(fd, &clientAddr, &clientAddrLen);
+
+    if (g == -1) {
+        return (stmp_net_get_client_values) {
+            .name = NULL,
+            .success = -1
+        };
+    }
+
+    char host[255];
+    char server[255];
+
+    int n = getnameinfo(&clientAddr, clientAddrLen, host, sizeof(host), server, sizeof(server), NI_NUMERICHOST | NI_NUMERICSERV);
+
+    if (n != 0) {
+        return (stmp_net_get_client_values) {
+            .name = NULL,
+            .success = -1
+        };
+    }
+
+    printf("Host: %s | Port: %s\n", host, server);
+
+    return (stmp_net_get_client_values) {
+        .name = "test",
+        .success = 1
+    };
+}
+
+// ===============================================================
+// Log
+// ===============================================================
+
+const char* stmp_log_print_type_colors[] = {
+    STMP_LOG_COLOR_INFO,
+    STMP_LOG_COLOR_WARN,
+    STMP_LOG_COLOR_ERROR
+};
+
 void stmp_log_print(const char* service, const char* message, stmp_log_print_type type) {
 	time_t timestamp = time(NULL);
 	struct tm* time_info = localtime(&timestamp);
 
     switch (type) {
-        case INFO:
+        case STMP_PRINT_TYPE_INFO:
             fprintf(stderr, "%s[%s] %d:%d:%d [INFO]: %s%s\n", stmp_log_print_type_colors[type], service, time_info->tm_hour, time_info->tm_min, time_info->tm_sec, message, STMP_LOG_COLOR_RESET);
             return;
-        case WARN:
+        case STMP_PRINT_TYPE_WARN:
             fprintf(stderr, "%s[%s] %d:%d:%d [WARN]: %s%s\n", stmp_log_print_type_colors[type], service, time_info->tm_hour, time_info->tm_min, time_info->tm_sec, message, STMP_LOG_COLOR_RESET);
             return;
-        case ERROR:
+        case STMP_PRINT_TYPE_ERROR:
             fprintf(stderr, "%s[%s] %d:%d:%d [ERROR]: %s%s\n", stmp_log_print_type_colors[type], service, time_info->tm_hour, time_info->tm_min, time_info->tm_sec, message, STMP_LOG_COLOR_RESET);
             return;
     }
 }
+
+// ===============================================================
+// Admiral
+// ===============================================================
+
+char* stmp_admiral_endpoints[] = {
+    "admiral",
+    "hotel",
+    "scheduler",
+};
 
 void stmp_admiral_queue_init(stmp_admiral_queue* queue, u8 capacity) {
     mem_arena* arena = arena_create(MiB(10));
@@ -156,7 +205,7 @@ stmp_admiral_message* stmp_admiral_queue_dequeue(stmp_admiral_queue* queue) {
 // this function ends, we can safely pop the packet memory of the network arena and start again
 //
 // Do NOT share memory across threads!
-stmp_error stmp_admiral_parse_and_queue_packet(stmp_admiral_queue* queue, stmp_packet* packet) {
+s8 stmp_admiral_parse_and_queue_packet(stmp_admiral_queue* queue, stmp_packet* packet) {
     // NOTE(laith): this should be [dest][sender][EMPTY PAYLOAD BYTE] at the minimum
     if (packet->payload_length < 3) {
         return STMP_ERR_BAD_PAYLOAD;
@@ -171,11 +220,15 @@ stmp_error stmp_admiral_parse_and_queue_packet(stmp_admiral_queue* queue, stmp_p
     }
 
     stmp_admiral_message message = {destination, sender, *packet};
-    stmp_admiral_queue_enqueue(queue, &message);
+    s8 e = stmp_admiral_queue_enqueue(queue, &message);
+    if (e == -1) {
+        stmp_log_print("admiral", "Could not enqueue message", STMP_PRINT_TYPE_ERROR);
+        return -1;
+    }
 
-    stmp_log_print("admiral", "Recieved and added message to queue", INFO);
+    stmp_log_print("admiral", "Recieved and added message to queue", STMP_PRINT_TYPE_INFO);
 
-    return STMP_ERR_NONE;
+    return 1;
 }
 
 // NOTE(laith): probably want some further checks here but given the checks within the enqueue call
