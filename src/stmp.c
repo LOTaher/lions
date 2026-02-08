@@ -1,6 +1,6 @@
 #include <string.h>
-#include "../include/lt_base.h"
 
+#include "../include/lt_base.h"
 #include "../include/stmp.h"
 
 void stmp_packet_init(stmp_packet* packet) {

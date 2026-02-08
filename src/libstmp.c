@@ -1,11 +1,9 @@
 #include <stdio.h>
 #include <string.h>
-#include <sys/_types/_socklen_t.h>
 #include <time.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netdb.h>
-#include <pthread.h>
 
 #include "../include/libstmp.h"
 #include "../include/lt_arena.h"
@@ -74,37 +72,32 @@ stmp_error stmp_net_recv_packet(u32 fd, u8* buffer, size_t size, stmp_packet* pa
     return STMP_ERR_BAD_INPUT;
 }
 
-stmp_net_get_client_values stmp_net_get_client(u32 fd) {
-
+char* stmp_net_get_client(u32 fd, mem_arena* arena) {
     struct sockaddr clientAddr = {0};
     socklen_t clientAddrLen = sizeof(clientAddr);
     int g = getpeername(fd, &clientAddr, &clientAddrLen);
 
     if (g == -1) {
-        return (stmp_net_get_client_values) {
-            .name = NULL,
-            .success = -1
-        };
+        return NULL;
     }
 
-    char host[255];
-    char server[255];
+    char host[255] = {0};
+    char port[255] = {0};
 
-    int n = getnameinfo(&clientAddr, clientAddrLen, host, sizeof(host), server, sizeof(server), NI_NUMERICHOST | NI_NUMERICSERV);
+    int n = getnameinfo(&clientAddr, clientAddrLen, host, sizeof(host), port, sizeof(port), NI_NUMERICHOST | NI_NUMERICSERV);
 
     if (n != 0) {
-        return (stmp_net_get_client_values) {
-            .name = NULL,
-            .success = -1
-        };
+        return NULL;
     }
 
-    printf("Host: %s | Port: %s\n", host, server);
 
-    return (stmp_net_get_client_values) {
-        .name = "test",
-        .success = 1
-    };
+    char name[255] = {0};
+    snprintf(name, sizeof(name), "%s:%s", host, port);
+
+    char* allocatedName = arena_push(arena, sizeof(name));
+    memcpy(allocatedName, name, sizeof(name));
+
+    return allocatedName;
 }
 
 // ===============================================================
@@ -205,7 +198,9 @@ stmp_admiral_message* stmp_admiral_queue_dequeue(stmp_admiral_queue* queue) {
 // this function ends, we can safely pop the packet memory of the network arena and start again
 //
 // Do NOT share memory across threads!
-s8 stmp_admiral_parse_and_queue_packet(stmp_admiral_queue* queue, stmp_packet* packet) {
+s8 stmp_admiral_parse_and_queue_packet(stmp_admiral_queue* queue, stmp_packet* packet, char* endpoint) {
+    char logBuffer[255] = {0};
+
     // NOTE(laith): this should be [dest][sender][EMPTY PAYLOAD BYTE] at the minimum
     if (packet->payload_length < 3) {
         return STMP_ERR_BAD_PAYLOAD;
@@ -214,19 +209,48 @@ s8 stmp_admiral_parse_and_queue_packet(stmp_admiral_queue* queue, stmp_packet* p
     u8 destination = packet->payload[0];
     u8 sender = packet->payload[1];
 
-    if ((destination < HOTEL || destination > SCHEDULER) ||
-        (sender < HOTEL || destination > SCHEDULER)) {
+    if ((destination < ADMIRAL || destination > SCHEDULER) ||
+        (sender < ADMIRAL || destination > SCHEDULER)) {
         return STMP_ERR_BAD_PAYLOAD;
+    }
+
+    switch (sender) {
+        case ADMIRAL:
+            if (strcmp(endpoint, "admiral") != 0) {
+                snprintf(logBuffer, sizeof(logBuffer), "[%s] is claiming to be a [admiral]", endpoint);
+                stmp_log_print("admiral", logBuffer, STMP_PRINT_TYPE_ERROR);
+                return -1;
+            }
+
+            break;
+        case HOTEL:
+            if (strcmp(endpoint, "hotel") != 0) {
+                snprintf(logBuffer, sizeof(logBuffer), "[%s] is claiming to be a [hotel]", endpoint);
+                stmp_log_print("admiral", logBuffer, STMP_PRINT_TYPE_ERROR);
+                return -1;
+            }
+
+            break;
+        case SCHEDULER:
+            if (strcmp(endpoint, "scheduler") != 0) {
+                snprintf(logBuffer, sizeof(logBuffer), "[%s] is claiming to be a [scheduler]", endpoint);
+                stmp_log_print("admiral", logBuffer, STMP_PRINT_TYPE_ERROR);
+                return -1;
+            }
+
+            break;
     }
 
     stmp_admiral_message message = {destination, sender, *packet};
     s8 e = stmp_admiral_queue_enqueue(queue, &message);
     if (e == -1) {
-        stmp_log_print("admiral", "Could not enqueue message", STMP_PRINT_TYPE_ERROR);
+        snprintf(logBuffer, sizeof(logBuffer), "Could not enqueue message from [%s]", endpoint);
+        stmp_log_print("admiral", logBuffer, STMP_PRINT_TYPE_ERROR);
         return -1;
     }
 
-    stmp_log_print("admiral", "Recieved and added message to queue", STMP_PRINT_TYPE_INFO);
+    snprintf(logBuffer, sizeof(logBuffer), "Recieved and added message from [%s] to queue", endpoint);
+    stmp_log_print("admiral", logBuffer, STMP_PRINT_TYPE_INFO);
 
     return 1;
 }
@@ -266,4 +290,19 @@ void stmp_admiral_invalidate_packet(stmp_packet* packet) {
     packet->payload_length = 1;
 }
 
+char* stmp_admiral_map_client_to_endpoint(char* client) {
+    if (strcmp(client, ADMIRAL_ENDPOINT_ADMIRAL) == 0) {
+        return "admiral";
+    }
+
+    if (strcmp(client, ADMIRAL_ENDPOINT_HOTEL) == 0) {
+        return "hotel";
+    }
+
+    if (strcmp(client, ADMIRAL_ENDPOINT_SCHEDULER) == 0) {
+        return "scheduler";
+    }
+
+    return NULL;
+}
 
