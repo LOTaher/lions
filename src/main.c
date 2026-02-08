@@ -148,8 +148,6 @@ void* admiral_loop(void* args) {
             continue;
         }
 
-        // TODO(laith): within this struct, add destinationIP, destinationPort, etc. can rename
-        // to stmp_admiral_get_endpoint_metadata
         stmp_admiral_message_endpoint_names endpoints = stmp_admiral_get_endpoint(msg);
         stmp_admiral_sanitize_message(msg);
 
@@ -160,7 +158,7 @@ void* admiral_loop(void* args) {
     }
 
     // TODO(laith): send the net packet, for now lets log to test
-    // this would consist of mapping the endpoint ids to a port and IP
+    // use the new endpoint macros to connect to the IP and port to send
 
     return 0;
 }
