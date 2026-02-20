@@ -16,8 +16,8 @@
 
 #include <string.h>
 
-#include "../include/lt_base.h"
-#include "../include/lmp.h"
+#include "lt_base.h"
+#include "lmp.h"
 
 void lmp_packet_init(lmp_packet* packet) {
     packet->version = 0;

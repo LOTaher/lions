@@ -24,10 +24,10 @@
 #include <unistd.h>
 #include <pthread.h>
 
-#include "../include/lt_arena.h"
-#include "../include/lt_base.h"
-#include "../include/lmp.h"
-#include "../include/liblmp.h"
+#include "../../lib/c/lt_arena.h"
+#include "../../lib/c/lt_base.h"
+#include "../../lib/c/lmp.h"
+#include "../../lib/c/liblmp.h"
 
 void* network_loop(void* args) {
     lmp_admiral_network_args* a = (lmp_admiral_network_args*)args;

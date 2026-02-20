@@ -22,10 +22,10 @@
 #include <sys/types.h>
 #include <netdb.h>
 
-#include "../include/liblmp.h"
-#include "../include/lt_arena.h"
-#include "../include/lt_base.h"
-#include "../include/lmp.h"
+#include "liblmp.h"
+#include "lt_arena.h"
+#include "lt_base.h"
+#include "lmp.h"
 
 // ===============================================================
 // Net
