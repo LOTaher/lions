@@ -1,4 +1,4 @@
-/*  main.c - Entrypoint to the admiral, the LIONS distributed system message broker
+/*  admiral.c - The LIONS distributed system message broker
     Copyright (C) 2026 splatte.dev
 
     This program is free software: you can redistribute it and/or modify

@@ -98,8 +98,8 @@ char* lmp_net_get_client(u32 fd, mem_arena* arena) {
         return NULL;
     }
 
-    char host[255] = {0};
-    char port[255] = {0};
+    char host[16] = {0};
+    char port[5] = {0};
 
     int n = getnameinfo(&clientAddr, clientAddrLen, host, sizeof(host), port, sizeof(port), NI_NUMERICHOST | NI_NUMERICSERV);
 
@@ -233,8 +233,7 @@ s8 lmp_admiral_add_packet_to_queue(lmp_admiral_queue* queue, lmp_packet* packet,
     u8 destination = packet->payload[0];
     u8 sender = packet->payload[1];
 
-    if ((destination < ADMIRAL || destination > SCHEDULER) ||
-        (sender < ADMIRAL || destination > SCHEDULER)) {
+    if (destination > SCHEDULER || sender > SCHEDULER) {
         return -1;
     }
 
