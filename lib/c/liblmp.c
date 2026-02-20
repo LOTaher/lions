@@ -21,6 +21,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netdb.h>
+#include <errno.h>
 
 #include "liblmp.h"
 #include "lt_arena.h"
@@ -92,18 +93,19 @@ lmp_error lmp_net_recv_packet(u32 fd, u8* buffer, size_t size, lmp_packet* packe
 char* lmp_net_get_client(u32 fd, mem_arena* arena) {
     struct sockaddr clientAddr = {0};
     socklen_t clientAddrLen = sizeof(clientAddr);
-    int g = getpeername(fd, &clientAddr, &clientAddrLen);
-
+    int g = getpeername(fd, (struct sockaddr*)&clientAddr, &clientAddrLen);
     if (g == -1) {
+        fprintf(stderr, "getpeername failed: %s\n", strerror(errno));
         return NULL;
     }
 
-    char host[16] = {0};
-    char port[5] = {0};
+    char host[255] = {0};
+    char port[255] = {0};
 
     int n = getnameinfo(&clientAddr, clientAddrLen, host, sizeof(host), port, sizeof(port), NI_NUMERICHOST | NI_NUMERICSERV);
 
     if (n != 0) {
+        fprintf(stderr, "getnameinfo failed: %s\n", gai_strerror(n));
         return NULL;
     }
 
