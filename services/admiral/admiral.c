@@ -160,8 +160,8 @@ void* admiral_loop(void* args) {
             continue;
         }
 
-        char* destinationName = lmp_admiral_map_id_to_endpoint(msg->packet.payload[0]);
-        char* senderName = lmp_admiral_map_id_to_endpoint(msg->packet.payload[1]);
+        char* destinationName = lmp_admiral_map_id_to_endpoint(msg->destinationId);
+        char* senderName = lmp_admiral_map_id_to_endpoint(msg->senderId);
 
         lmp_admiral_sanitize_message(msg);
 

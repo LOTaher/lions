@@ -228,8 +228,9 @@ s8 lmp_admiral_add_packet_to_queue(lmp_admiral_queue* queue, lmp_packet* packet,
         return -1;
     }
 
-    u8 destination = packet->payload[0];
-    u8 sender = packet->payload[1];
+    // NOTE(laith): this converts and ascii string to its byte form
+    u8 destination = packet->payload[0] - '0';
+    u8 sender = packet->payload[1] - '0';
 
     if (destination > SCHEDULER || sender > SCHEDULER) {
         return -1;
