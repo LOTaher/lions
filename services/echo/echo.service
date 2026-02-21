@@ -1,0 +1,12 @@
+[Unit]
+Description=LIONS Scheduling Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/echo
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

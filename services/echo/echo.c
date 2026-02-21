@@ -1,4 +1,4 @@
-/*  admiral.c - The LIONS distributed system message broker
+/*  echo.c - The LIONS distributed system scheduling service
     Copyright (C) 2026 splatte.dev
 
     This program is free software: you can redistribute it and/or modify
@@ -27,13 +27,13 @@
 #include "../../lib/c/lmp.h"
 #include "../../lib/c/liblmp.h"
 
-#define CONFIG_PATH "ss.conf"
+#define CONFIG_PATH "echo.conf"
 
 s8 populate_scheduler(mem_arena* arena, u8** table) {
     FILE* f = fopen(CONFIG_PATH, "r");
 
     if (f == NULL) {
-        lmp_log_print("ss", "Error opening config file.", LMP_PRINT_TYPE_ERROR);
+        lmp_log_print("echo", "Error opening config file.", LMP_PRINT_TYPE_ERROR);
         return -1;
     }
 
@@ -57,7 +57,7 @@ s8 populate_scheduler(mem_arena* arena, u8** table) {
 
         table[destination] = allocatedPayload;
 
-        lmp_log_print("ss", logBuffer, LMP_PRINT_TYPE_INFO);
+        lmp_log_print("echo", logBuffer, LMP_PRINT_TYPE_INFO);
     }
 
     fclose(f);
@@ -81,14 +81,14 @@ int main(void) {
 
             int socketFd = socket(AF_INET, SOCK_STREAM, 0);
             if (socketFd == -1) {
-                lmp_log_print("ss", "Failed to create socket", LMP_PRINT_TYPE_ERROR);
+                lmp_log_print("echo", "Failed to create socket", LMP_PRINT_TYPE_ERROR);
                 return 1;
             }
 
             int opt = 1;
             int s = setsockopt(socketFd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
             if (s == -1) {
-                lmp_log_print("ss", "Failed to set socket option", LMP_PRINT_TYPE_ERROR);
+                lmp_log_print("echo", "Failed to set socket option", LMP_PRINT_TYPE_ERROR);
                 close(socketFd);
                 return 1;
             }
@@ -100,7 +100,7 @@ int main(void) {
 
             int b = bind(socketFd, (struct sockaddr*)&localAddr, sizeof(localAddr));
             if (b == -1) {
-                lmp_log_print("ss", "Failed to bind to port", LMP_PRINT_TYPE_ERROR);
+                lmp_log_print("echo", "Failed to bind to port", LMP_PRINT_TYPE_ERROR);
                 close(socketFd);
                 continue;
             }
@@ -112,7 +112,7 @@ int main(void) {
 
             int c = connect(socketFd, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
             if (c == -1) {
-                lmp_log_print("ss", "Could not connect to admiral", LMP_PRINT_TYPE_ERROR);
+                lmp_log_print("echo", "Could not connect to admiral", LMP_PRINT_TYPE_ERROR);
                 close(socketFd);
                 continue;
             }
@@ -134,7 +134,7 @@ int main(void) {
             lmp_net_send_packet(socketFd, &sendPacket, &result);
 
             if (result.error != LMP_ERR_NONE) {
-                lmp_log_print("ss", "Failed to serialize and send packet to admiral", LMP_PRINT_TYPE_ERROR);
+                lmp_log_print("echo", "Failed to serialize and send packet to admiral", LMP_PRINT_TYPE_ERROR);
             }
 
             close(socketFd);

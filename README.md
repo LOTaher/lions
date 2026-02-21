@@ -14,6 +14,7 @@ LIONS runs on all my hardware. My hardware shares a naming convention: Counter-S
 LIONS is currently composed of the following services:
 - **admiral**: central message broker running 24/7 that allows different LIONS supported services to talk to each other using LMP.
 - **archimedes**: automated ssh port forwarding tool to allow me to access my self-hosted services on any device I need.
+- **echo**: scheduling service that sends LMP packets to different services through admiral.
 
 Usage: `./install <service>`
 
